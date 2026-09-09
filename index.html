@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>クイズ</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      min-height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #ffffff;
+      color: #111111;
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      justify-content: center;
+    }
+
+    .page {
+      width: min(100%, 900px);
+      padding: 16px 16px 32px;
+    }
+
+    .quiz-image {
+      display: block;
+      width: 100%;
+      height: auto;
+      margin: 0 auto;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .answer-area {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 20px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .answer-input {
+      flex: 1;
+      min-width: 0;
+      max-width: 360px;
+      height: 46px;
+      padding: 8px 12px;
+      border: 2px solid #555;
+      border-radius: 8px;
+      font-size: 18px;
+      background: #fff;
+      color: #111;
+      outline: none;
+    }
+
+    .answer-input:focus {
+      border-color: #111;
+    }
+
+    .message {
+      min-height: 1.5em;
+      margin-top: 10px;
+      text-align: center;
+      font-size: 14px;
+      color: #666;
+    }
+
+    /* 正解画像の全画面表示 */
+    .correct-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(0, 0, 0, 0.88);
+
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+
+      transition:
+        opacity 220ms ease,
+        visibility 220ms ease;
+    }
+
+    .correct-overlay.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .correct-image {
+      display: block;
+      max-width: 96vw;
+      max-height: 92vh;
+      object-fit: contain;
+      user-select: none;
+      -webkit-user-drag: none;
+
+      transform: scale(0.25);
+      opacity: 0;
+
+      transition:
+        transform 420ms cubic-bezier(.18, .9, .28, 1.2),
+        opacity 260ms ease;
+    }
+
+    .correct-overlay.show .correct-image {
+      transform: scale(1);
+      opacity: 1;
+    }
+
+    @media (max-width: 480px) {
+      .page {
+        padding: 10px 10px 24px;
+      }
+
+      .answer-area {
+        margin-top: 16px;
+        font-size: 18px;
+      }
+
+      .answer-input {
+        height: 44px;
+        font-size: 17px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page" id="mainPage">
+    <img
+      src="image_quiz.png"
+      alt="クイズ画像"
+      class="quiz-image"
+      id="quizImage"
+    >
+
+    <div class="answer-area">
+      <label for="answerInput">答</label>
+      <input
+        type="text"
+        id="answerInput"
+        class="answer-input"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        enterkeyhint="done"
+      >
+    </div>
+
+    <div class="message" id="message"></div>
+  </main>
+
+  <div
+    class="correct-overlay"
+    id="correctOverlay"
+    aria-hidden="true"
+  >
+    <img
+      src="image_seikai.jpg"
+      alt="正解"
+      class="correct-image"
+      id="correctImage"
+    >
+  </div>
+
+  <script>
+    const answerInput = document.getElementById("answerInput");
+    const correctOverlay = document.getElementById("correctOverlay");
+    const message = document.getElementById("message");
+
+    let validAnswers = [];
+    let isCorrect = false;
+
+    /*
+      入力文字列の前後の空白だけを無視します。
+      大文字・小文字、全角・半角などは自動変換しません。
+      text_answer.txt に記載した文字列そのものを正解候補として扱います。
+    */
+    function normalizeAnswer(text) {
+      return text.trim();
+    }
+
+    async function loadAnswers() {
+      try {
+        const response = await fetch("text_answer.txt", {
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          throw new Error("text_answer.txt を読み込めませんでした。");
+        }
+
+        const text = await response.text();
+
+        /*
+          半角コンマ「,」と全角コンマ「，」の両方に対応。
+          改行が混ざっていても候補として分割します。
+        */
+        validAnswers = text
+          .split(/[,，\r\n]+/)
+          .map(normalizeAnswer)
+          .filter(answer => answer.length > 0);
+
+        if (validAnswers.length === 0) {
+          throw new Error("text_answer.txt に正解文字列がありません。");
+        }
+      } catch (error) {
+        console.error(error);
+        message.textContent = "正解データを読み込めませんでした。";
+      }
+    }
+
+    function checkAnswer() {
+      if (isCorrect || validAnswers.length === 0) {
+        return;
+      }
+
+      const input = normalizeAnswer(answerInput.value);
+
+      if (input.length === 0) {
+        return;
+      }
+
+      if (validAnswers.includes(input)) {
+        showCorrectImage();
+      }
+    }
+
+    function showCorrectImage() {
+      isCorrect = true;
+      answerInput.blur();
+
+      correctOverlay.classList.add("show");
+      correctOverlay.setAttribute("aria-hidden", "false");
+    }
+
+    function resetQuiz() {
+      if (!isCorrect) {
+        return;
+      }
+
+      correctOverlay.classList.remove("show");
+      correctOverlay.setAttribute("aria-hidden", "true");
+
+      answerInput.value = "";
+      message.textContent = "";
+      isCorrect = false;
+
+      window.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: "auto"
+      });
+
+      setTimeout(() => {
+        answerInput.focus();
+      }, 250);
+    }
+
+    /*
+      正解候補と完全一致した瞬間に判定。
+      Enterキーでも同じ判定を行います。
+    */
+    answerInput.addEventListener("input", checkAnswer);
+
+    answerInput.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        checkAnswer();
+      }
+    });
+
+    /*
+      正解画像表示後は、画面上のどこをタップ／クリックしても初期状態へ戻す。
+    */
+    correctOverlay.addEventListener("click", resetQuiz);
+
+    loadAnswers();
+  </script>
+</body>
+</html>
